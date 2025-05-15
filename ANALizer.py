@@ -70,6 +70,7 @@ def update_midi_conversion():
         current_midi_notes = filter_notes(audio_data[2], velocity_threshold, min_duration)
     draw_midi(midi_canvas, current_midi_notes, midi_canvas.winfo_width(), midi_canvas.winfo_height(), zoom_level, scroll_y)
 
+
 def adjust_denoise(value):
     global denoise_threshold
     denoise_threshold = float(value)
@@ -146,7 +147,7 @@ high_cut_slider.set(20000)
 high_cut_slider.pack(fill="x")
 
 # MIDI Conversion Controls (Tab 2)
-midi_controls = tk.LabelFrame(control_panel, text="MIDI Controls", bg="#34495e", fg="white")
+midi_controls = tk.LabelFrame(control_panel, text="MIDI Controls", bg="#34495e", fg="grey")
 midi_controls.pack(fill="x", pady=5)
 
 tk.Label(midi_controls, text="Velocity Threshold").pack()

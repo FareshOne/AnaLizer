@@ -1,63 +1,85 @@
-﻿import numpy as np
-from utils import frequency_to_color
+﻿import tkinter as tk
+from tkinter import Canvas
+import numpy as np
 
-def draw_waveform(canvas, audio, sr, width, height):
-    """
-    Draws the audio waveform with a vertically mirrored gradient (Red-Yellow-Green).
-    """
+def draw_waveform(canvas, audio, sr, width, height, theme):
     canvas.delete("all")
-    step = max(1, len(audio) // width)
-    max_amplitude = max(abs(audio)) if len(audio) > 0 else 1
+    waveform = audio / np.max(np.abs(audio))  # Normalize
+
+    step = max(1, len(waveform) // width)
+    half_height = height // 2
 
     for i in range(width - 1):
-        # Calculate waveform amplitude for vertical gradient
-        amplitude = abs(audio[i * step]) / max_amplitude
+        index = i * step
+        y1 = half_height - int(waveform[index] * half_height)
+        y2 = half_height - int(waveform[min(index + step, len(waveform) - 1)] * half_height)
         
-        # Top Half Gradient (Red → Yellow → Green)
-        if amplitude <= 0.5:
-            red = int(255 * (1 - 2 * amplitude))
-            green = int(255 * (2 * amplitude))
-            blue = 0
-        # Bottom Half Gradient (Green → Yellow → Red)
-        else:
-            amplitude = amplitude - 0.5
-            red = int(255 * (2 * amplitude))
-            green = int(255 * (1 - 2 * amplitude))
-            blue = 0
+        freq_color = theme["waveform_color"]
+        canvas.create_line(i, y1, i + 1, y2, fill=freq_color, width=1)
 
-        color = f"#{red:02x}{green:02x}{blue:02x}"
+def draw_spectrum(canvas, spectrum, sr, width, height, theme):
+    canvas.delete("spectrum")
+    max_amp = np.max(spectrum)
+    
+    for i in range(width):
+        frequency = i * (sr / 2) / width
+        amplitude = spectrum[i] / max_amp
+        height_bar = int(amplitude * height)
+        color = calculate_color(frequency, theme)
+        canvas.create_line(i, height, i, height - height_bar, fill=color, tags="spectrum")
 
-        # Draw the waveform
-        y1 = height // 2 - int((audio[i * step] / max_amplitude) * (height // 2))
-        y2 = height // 2 - int((audio[(i + 1) * step] / max_amplitude) * (height // 2))
-        canvas.create_line(i, y1, i + 1, y2, fill=color, width=1)
+def draw_velocity_curve(canvas, velocities, width, height, theme):
+    canvas.delete("velocity_curve")
+    max_velocity = max(velocities) if velocities else 1
 
-def draw_spectrum(canvas, spectrum, sr, width, height):
-    """
-    Draws the frequency spectrum on the given canvas.
-    """
-    for i in range(width - 1):
-        spectrum_value = spectrum[i] if i < len(spectrum) else 0
-        color = frequency_to_color(i * sr / (2 * width), sr // 2)
-        canvas.create_line(
-            i, height, i, height - int(spectrum_value * height // 2), 
-            fill=color, width=1
-        )
+    for i in range(len(velocities) - 1):
+        x1 = int((i / len(velocities)) * width)
+        y1 = height - int((velocities[i] / max_velocity) * height)
+        x2 = int(((i + 1) / len(velocities)) * width)
+        y2 = height - int((velocities[i + 1] / max_velocity) * height)
 
-def draw_midi(canvas, midi_notes, width, height):
-    """
-    Draws MIDI notes on the given canvas (Piano Roll Style).
-    """
+        canvas.create_line(x1, y1, x2, y2, fill=theme["velocity_curve_color"], width=2, tags="velocity_curve")
+
+def draw_piano_roll(canvas, notes, width, height, zoom_level, scroll_y, theme, cursor_position=None):
     canvas.delete("all")
-    if len(midi_notes) == 0:
-        return
+    note_height = 10
+    total_keys = 88
+    key_height = height // total_keys
+    visible_notes = [note for note in notes if scroll_y <= note['pitch'] < scroll_y + total_keys]
+    
+    # Draw grid lines
+    for i in range(total_keys):
+        y = height - (i * key_height)
+        canvas.create_line(0, y, width, y, fill=theme["grid_color"])
 
-    note_height = height // 88  # 88 Piano Keys (A0 to C8)
-    for note in midi_notes:
-        x = int(note['start_time'] * 500)
-        y = height - ((note['pitch'] - 21) * note_height)
-        velocity = min(max(note['velocity'], 0), 127)
-        color = f"#{int(0):02x}{int(200 - velocity):02x}{int(50 + velocity):02x}"
+    # Draw notes
+    for note in visible_notes:
+        y = height - ((note['pitch'] - scroll_y) * key_height)
+        x = int(note['start'] * zoom_level)
+        note_width = max(int(note['duration'] * zoom_level), 1)
+        
         canvas.create_rectangle(
-            x, y, x + int(note['duration'] * 500), y + note_height, fill=color, outline="#333333"
+            x, y - key_height, x + note_width, y,
+            fill=theme["note_color"], outline=theme["note_border_color"]
         )
+
+    # Draw velocity curve below notes
+    velocities = [note['velocity'] for note in visible_notes]
+    draw_velocity_curve(canvas, velocities, width, int(height * 0.2), theme)
+
+    # Draw cursor if active
+    if cursor_position is not None:
+        cursor_x = int(cursor_position * zoom_level)
+        canvas.create_line(cursor_x, 0, cursor_x, height, fill=theme["cursor_color"], width=2)
+
+def calculate_color(frequency, theme):
+    low, mid, high = theme["gradient_low"], theme["gradient_mid"], theme["gradient_high"]
+    if frequency < 200:
+        return low
+    elif frequency < 2000:
+        return mid
+    else:
+        return high
+
+def apply_theme(canvas, theme):
+    canvas.configure(bg=theme["background_color"])
