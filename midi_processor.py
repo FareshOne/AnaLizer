@@ -1,57 +1,48 @@
-import pretty_midi
-import numpy as np
+import pygame.midi
 
-def generate_midi(notes, save_path, mode="normal"):
-    midi = pretty_midi.PrettyMIDI()
-    instrument = pretty_midi.Instrument(program=73)  # Flute default
+# Initialize MIDI Playback (Pygame MIDI)
+pygame.midi.init()
+midi_out = pygame.midi.Output(0)
 
-    for note in notes:
-        start = note["start"]
-        duration = note["duration"]
+# Generate MIDI from Audio Function
+def generate_midi():
+    global current_midi_notes
+    if not current_midi_notes:
+        tk.messagebox.showerror("Error", "No MIDI notes available.")
+        return
 
-        if mode == "legato":
-            duration += duration * 0.15  # 15% overlap for Legato
+    save_path = filedialog.asksaveasfilename(
+        title="Save MIDI File",
+        defaultextension=".mid",
+        filetypes=[("MIDI Files", "*.mid")]
+    )
 
-        velocity = calculate_velocity(note["amplitude"])
-        midi_note = pretty_midi.Note(
-            velocity=velocity,
-            pitch=note["pitch"],
-            start=start,
-            end=start + duration
-        )
-        instrument.notes.append(midi_note)
+    if save_path:
+        from midi_processor import generate_midi_file  # Import directly to avoid circular dependency
+        generate_midi_file(current_midi_notes, save_path)
 
-    midi.instruments.append(instrument)
-    midi.write(save_path)
+# MIDI Play and Stop Controls
+def play_midi():
+    if not current_midi_notes:
+        tk.messagebox.showerror("Error", "No MIDI notes to play.")
+        return
 
-def process_pitches_to_midi(pitches, amplitudes, sr, min_duration=0.05):
-    notes = []
-    current_note = None
+    for note in current_midi_notes:
+        midi_out.note_on(note['note'], note.get('velocity', 100))
+        root.after(int(note['duration'] * 1000), lambda: midi_out.note_off(note['note']))
 
-    for i, pitch in enumerate(pitches):
-        if pitch > 0:
-            if current_note is None:
-                current_note = {
-                    "pitch": int(librosa.hz_to_midi(pitch)),
-                    "start": i / sr,
-                    "amplitude": amplitudes[i],
-                    "duration": 0
-                }
-            else:
-                current_note["duration"] += 1 / sr
-                current_note["amplitude"] = max(current_note["amplitude"], amplitudes[i])
-        else:
-            if current_note and current_note["duration"] >= min_duration:
-                notes.append(current_note)
-            current_note = None
+def stop_midi():
+    midi_out.close()
+    pygame.midi.quit()
+    pygame.midi.init()  # Reset MIDI state
 
-    if current_note and current_note["duration"] >= min_duration:
-        notes.append(current_note)
+# MIDI Play/Stop Buttons (MIDI Tab)
+play_button = tk.Button(tab_midi, text="Play MIDI", command=play_midi, bg="#333333", fg="white")
+play_button.pack(side="left", padx=5)
 
-    return notes
+stop_button = tk.Button(tab_midi, text="Stop MIDI", command=stop_midi, bg="#333333", fg="white")
+stop_button.pack(side="left", padx=5)
 
-def calculate_velocity(amplitude):
-    # Logarithmic velocity scaling
-    scaled_amplitude = max(0.001, amplitude)  # Prevent log(0)
-    velocity = int(np.clip(127 * np.log10(scaled_amplitude + 1), 0, 127))
-    return velocity
+# Save MIDI Button (MIDI Tab)
+save_midi_button = tk.Button(tab_midi, text="Save MIDI", command=generate_midi, bg="#333333", fg="white")
+save_midi_button.pack(side="left", padx=5)

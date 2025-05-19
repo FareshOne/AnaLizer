@@ -1,17 +1,14 @@
-def filter_notes(midi_notes, velocity_threshold=10, min_duration=0.05):
-    """
-    Filters notes by velocity and duration thresholds.
-    """
-    return [
-        note for note in midi_notes 
-        if note['velocity'] >= velocity_threshold and note['duration'] >= min_duration
-    ]
+import os
 
-def frequency_to_color(frequency, max_freq):
-    """
-    Returns a color gradient (Red to Blue) based on frequency.
-    """
-    ratio = min(max(frequency / max_freq, 0), 1)
-    red = int(255 * (1 - ratio))
-    blue = int(255 * ratio)
-    return f"#{red:02x}00{blue:02x}"
+# Utility: Ensure Directory Exists
+def ensure_directory(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+# Utility: Clamp Value (Range)
+def clamp(value, min_value, max_value):
+    return max(min(value, max_value), min_value)
+
+# Utility: Map Value (Range)
+def map_value(value, in_min, in_max, out_min, out_max):
+    return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min

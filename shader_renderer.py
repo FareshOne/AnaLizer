@@ -1,140 +1,132 @@
-import pygame
-from pygame.locals import *
-import OpenGL.GL as gl
-import OpenGL.GL.shaders as shaders
+import tkinter as tk
 import numpy as np
+from tkinter import colorchooser
+import math
 import time
-import threading
 
-class ShaderRenderer:
-    def __init__(self, width=800, height=600):
-        self.width = width
-        self.height = height
-        self.running = False
-        self.shader_program = None
-        self.start_time = time.time()
-        self.bpm = 120
-        self.pitch_intensity = 1.0
-        self.speed_multiplier = 1.0
-        self.transparency = 1.0
-        self.resolution = (800, 600)
-        self.use_vignette = True
-        self.use_lut = False
+shader_canvas = None
+shader_running = False
+shader_params = {
+    "fractal_type": "mandelbulb",  # mandelbulb, julia, koch
+    "depth": 4,
+    "primary_color": "#ff0000",  # Red
+    "secondary_color": "#0000ff",  # Blue
+    "animation_speed": 1.0,
+    "audio_reactive": True,
+    "color_shift": True
+}
 
-    def start(self):
-        self.running = True
-        self.thread = threading.Thread(target=self.run)
-        self.thread.start()
+def start_shader_renderer(canvas):
+    global shader_canvas, shader_running
+    shader_canvas = canvas
+    shader_running = True
+    animate_shader()
 
-    def stop(self):
-        self.running = False
-        if self.thread.is_alive():
-            self.thread.join()
+def stop_shader_renderer():
+    global shader_running
+    shader_running = False
 
-    def setup_shader(self):
-        vertex_shader_code = """
-        #version 330 core
-        in vec2 position;
-        void main() {
-            gl_Position = vec4(position, 0.0, 1.0);
-        }
-        """
-        fragment_shader_code = """
-        #version 330 core
-        out vec4 fragColor;
-        uniform float time;
-        uniform float bpm;
-        uniform float pitchIntensity;
-        uniform float transparency;
-        uniform vec2 resolution;
-        uniform bool use_vignette;
-        uniform bool use_lut;
+def animate_shader():
+    global shader_canvas, shader_running
+    if not shader_running:
+        return
 
-        vec3 fractal(vec2 uv) {
-            float intensity = 0.5 + 0.5 * sin(time * bpm * 0.1);
-            vec3 color = vec3(0.0);
-            float scale = 3.0;
-            uv -= 0.5;
-            uv *= scale;
-            for (int i = 0; i < 10; i++) {
-                uv = abs(uv) / dot(uv, uv) - 1.0;
-                color += vec3(0.5, 0.3, 0.2) * intensity;
-            }
-            return color;
-        }
+    width = shader_canvas.winfo_width()
+    height = shader_canvas.winfo_height()
+    shader_canvas.delete("all")
 
-        void main() {
-            vec2 uv = gl_FragCoord.xy / resolution;
-            vec3 color = fractal(uv);
+    # Fractal Parameters
+    depth = shader_params["depth"]
+    primary = shader_params["primary_color"]
+    secondary = shader_params["secondary_color"]
 
-            if (use_vignette) {
-                float dist = length(uv - vec2(0.5));
-                color *= smoothstep(1.0, 0.0, dist);
-            }
+    # Animation Time
+    t = time.time() * shader_params["animation_speed"]
 
-            if (use_lut) {
-                color = pow(color, vec3(0.6, 0.7, 0.8));
-            }
+    for y in range(0, height, 2):  # Skipping 2 pixels for performance
+        for x in range(0, width, 2):
+            # Mandelbulb Pattern (adjustable)
+            zx = 1.5 * (x - width / 2) / (0.5 * width)
+            zy = 1.0 * (y - height / 2) / (0.5 * height)
+            c = complex(zx, zy)
+            z = c
+            color_factor = 0
 
-            fragColor = vec4(color * pitchIntensity, transparency);
-        }
-        """
-        vertex_shader = shaders.compileShader(vertex_shader_code, gl.GL_VERTEX_SHADER)
-        fragment_shader = shaders.compileShader(fragment_shader_code, gl.GL_FRAGMENT_SHADER)
-        self.shader_program = shaders.compileProgram(vertex_shader, fragment_shader)
+            for i in range(depth):
+                z = z ** 2 + c
+                if abs(z) > 2:
+                    color_factor = i / depth
+                    break
 
-    def run(self):
-        pygame.init()
-        pygame.display.set_mode(self.resolution, DOUBLEBUF | OPENGL)
-        self.setup_shader()
-        clock = pygame.time.Clock()
+            # Color Calculation (Primary to Secondary Gradient)
+            if shader_params["color_shift"]:
+                red = int(int(primary[1:3], 16) * (1 - color_factor) + int(secondary[1:3], 16) * color_factor)
+                green = int(int(primary[3:5], 16) * (1 - color_factor) + int(secondary[3:5], 16) * color_factor)
+                blue = int(int(primary[5:7], 16) * (1 - color_factor) + int(secondary[5:7], 16) * color_factor)
+                color = f'#{red:02x}{green:02x}{blue:02x}'
+            else:
+                color = primary
 
-        while self.running:
-            for event in pygame.event.get():
-                if event.type == QUIT:
-                    self.running = False
+            # Adjust for Audio Reactivity (Wave Effect)
+            if shader_params["audio_reactive"]:
+                wave = math.sin(t + (x / width) * 6.28) * 20  # Sine wave effect
+                y_pos = y + int(wave)
+            else:
+                y_pos = y
 
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-            gl.glUseProgram(self.shader_program)
+            shader_canvas.create_rectangle(x, y_pos, x + 2, y_pos + 2, outline=color, fill=color)
 
-            time_passed = time.time() - self.start_time
-            gl.glUniform1f(gl.glGetUniformLocation(self.shader_program, "time"), time_passed * self.speed_multiplier)
-            gl.glUniform1f(gl.glGetUniformLocation(self.shader_program, "bpm"), self.bpm / 60.0)
-            gl.glUniform1f(gl.glGetUniformLocation(self.shader_program, "pitchIntensity"), self.pitch_intensity)
-            gl.glUniform1f(gl.glGetUniformLocation(self.shader_program, "transparency"), self.transparency)
-            gl.glUniform2f(gl.glGetUniformLocation(self.shader_program, "resolution"), *self.resolution)
-            gl.glUniform1i(gl.glGetUniformLocation(self.shader_program, "use_vignette"), int(self.use_vignette))
-            gl.glUniform1i(gl.glGetUniformLocation(self.shader_program, "use_lut"), int(self.use_lut))
+    shader_canvas.after(16, animate_shader)  # ~60 FPS
 
-            gl.glBegin(gl.GL_QUADS)
-            gl.glVertex2f(-1, -1)
-            gl.glVertex2f(1, -1)
-            gl.glVertex2f(1, 1)
-            gl.glVertex2f(-1, 1)
-            gl.glEnd()
+# UI for Shader Settings (Settings Tab)
+def open_shader_settings():
+    settings_window = tk.Toplevel()
+    settings_window.title("Shader Settings")
 
-            pygame.display.flip()
-            clock.tick(60)
+    tk.Label(settings_window, text="Fractal Type:").pack()
+    fractal_var = tk.StringVar(value=shader_params["fractal_type"])
+    tk.OptionMenu(settings_window, fractal_var, "mandelbulb", "julia", "koch").pack()
 
-        pygame.quit()
+    def save_shader_settings():
+        shader_params["fractal_type"] = fractal_var.get()
+        shader_params["primary_color"] = color_1.get()
+        shader_params["secondary_color"] = color_2.get()
+        shader_params["depth"] = depth_slider.get()
+        shader_params["animation_speed"] = speed_slider.get()
+        shader_params["audio_reactive"] = audio_checkbox_var.get()
+        shader_params["color_shift"] = color_shift_var.get()
+        settings_window.destroy()
 
-    def set_bpm(self, bpm):
-        self.bpm = bpm
+    # Color Pickers
+    tk.Label(settings_window, text="Primary Color:").pack()
+    color_1 = tk.StringVar(value=shader_params["primary_color"])
+    tk.Entry(settings_window, textvariable=color_1).pack()
 
-    def set_pitch_intensity(self, intensity):
-        self.pitch_intensity = intensity
+    tk.Label(settings_window, text="Secondary Color:").pack()
+    color_2 = tk.StringVar(value=shader_params["secondary_color"])
+    tk.Entry(settings_window, textvariable=color_2).pack()
 
-    def set_speed_multiplier(self, speed):
-        self.speed_multiplier = speed
+    # Depth Slider
+    tk.Label(settings_window, text="Fractal Depth:").pack()
+    depth_slider = tk.Scale(settings_window, from_=1, to=8, orient="horizontal")
+    depth_slider.set(shader_params["depth"])
+    depth_slider.pack()
 
-    def set_transparency(self, alpha):
-        self.transparency = alpha
+    # Animation Speed
+    tk.Label(settings_window, text="Animation Speed:").pack()
+    speed_slider = tk.Scale(settings_window, from_=0.1, to=5.0, resolution=0.1, orient="horizontal")
+    speed_slider.set(shader_params["animation_speed"])
+    speed_slider.pack()
 
-    def set_resolution(self, width, height):
-        self.resolution = (width, height)
+    # Audio Reactivity Checkbox
+    audio_checkbox_var = tk.BooleanVar(value=shader_params["audio_reactive"])
+    tk.Checkbutton(settings_window, text="Audio Reactive", variable=audio_checkbox_var).pack()
 
-    def toggle_vignette(self, state):
-        self.use_vignette = state
+    # Color Shift Checkbox
+    color_shift_var = tk.BooleanVar(value=shader_params["color_shift"])
+    tk.Checkbutton(settings_window, text="Color Shift", variable=color_shift_var).pack()
 
-    def toggle_lut(self, state):
-        self.use_lut = state
+    # Save Button
+    save_button = tk.Button(settings_window, text="Save Settings", command=save_shader_settings)
+    save_button.pack(pady=5)
+
